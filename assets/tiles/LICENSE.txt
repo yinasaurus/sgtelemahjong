@@ -1,0 +1,5 @@
+Riichi mahjong tile PNGs from:
+https://github.com/FluffyStuff/riichi-mahjong-tiles
+
+License: Creative Commons CC0 1.0 Universal (public domain)
+https://creativecommons.org/publicdomain/zero/1.0/

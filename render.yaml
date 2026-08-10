@@ -1,0 +1,25 @@
+# Render Blueprint — use as Background Worker (not free Web Service).
+# Dashboard: New → Blueprint, or create Background Worker manually.
+
+services:
+  - type: worker
+    name: tele-mahjong
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    plan: starter
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: BOT_DIFFICULTY
+        value: normal
+      - key: TURN_TIMEOUT_S
+        value: "60"
+      - key: CLAIM_TIMEOUT_S
+        value: "60"
+      - key: DATABASE_PATH
+        value: /var/data/bot.sqlite
+    disk:
+      name: mahjong-data
+      mountPath: /var/data
+      sizeGB: 1

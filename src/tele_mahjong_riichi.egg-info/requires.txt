@@ -1,0 +1,5 @@
+python-telegram-bot<23,>=21.0
+python-dotenv>=1.0
+
+[dev]
+pytest>=8.0
