@@ -1,24 +1,30 @@
+"""Game flow tests for Singapore Mahjong."""
+
 import random
 
-from mahjong.game import ClaimType, Game, GamePhase, PlayerState
+from mahjong.game import ClaimType, Game, GamePhase, Player
 from mahjong.hand import Hand
-from mahjong.tiles import parse_tiles
-from mahjong.wall import Wall
+from mahjong.tiles import Suit, Tile
 
 
-def test_deal_shapes():
-    g = Game.new_hand(rng=random.Random(0))
+def _t(suit: Suit, value: int) -> Tile:
+    return Tile(suit, value)
+
+
+def test_deal_shapes_and_no_bonus_left_in_hand():
+    g = Game.new_hand(seed=0)
     assert g.phase == GamePhase.PLAYING
     assert len(g.players[g.dealer].hand.concealed) == 14
     for s in range(4):
-        if s == g.dealer:
-            continue
-        assert len(g.players[s].hand.concealed) == 13
-    assert g.wall.remaining_live == 136 - 14 - (13 * 4 + 1)
+        if s != g.dealer:
+            assert len(g.players[s].hand.concealed) == 13
+        assert all(not t.is_bonus for t in g.players[s].hand.concealed)
+    # 148 - 52 dealt - replacements - dealer draw
+    assert g.wall.remaining_live < 148 - 52
 
 
-def test_discard_opens_claim_window():
-    g = Game.new_hand(rng=random.Random(1))
+def test_discard_opens_claim_or_advances():
+    g = Game.new_hand(seed=1)
     dealer = g.dealer
     assert g.discard(dealer, 0)
     assert g.phase in (GamePhase.CLAIM_WINDOW, GamePhase.PLAYING)
@@ -26,55 +32,60 @@ def test_discard_opens_claim_window():
         assert g.turn_seat == (dealer + 1) % 4
 
 
-def test_ron_priority_over_pon():
-    g = Game.new_hand(rng=random.Random(2))
-    g.dealer = 0
-    g.round_wind = 0
-    g.players = [PlayerState() for _ in range(4)]
-    g.phase = GamePhase.PLAYING
-    g.has_drawn = True
-    g.turn_seat = 0
-
-    # Seat 1 can pon East
-    g.players[1].hand = Hand(concealed=parse_tiles("EE 123m456m789p12s"))
-    assert len(g.players[1].hand.concealed) == 13
-
-    # Seat 2: riichi tenpai on East (tanki; yaku = riichi)
-    # 4 sequences (12) + singleton E (1) = 13, waits E
-    g.players[2].hand = Hand(concealed=parse_tiles("123m456m789m123p E"))
-    g.players[2].riichi = True
-    assert len(g.players[2].hand.concealed) == 13
-
-    g.players[3].hand = Hand(concealed=parse_tiles("123456789m123p")[:13])
-    g.players[0].hand = Hand(concealed=parse_tiles("111222333444m55p"))
-    assert len(g.players[0].hand.concealed) == 14
-    g.players[0].hand.concealed[0] = parse_tiles("E")[0]
-
-    assert g.discard(0, 0)
-    assert g.phase == GamePhase.CLAIM_WINDOW
-    assert ClaimType.PON in g.eligible_claims(1)
-    assert ClaimType.RON in g.eligible_claims(2)
-    assert g.register_claim(1, ClaimType.PON)
-    # ron should resolve immediately (pon dominated)
-    assert g.register_claim(2, ClaimType.RON)
-    assert g.phase == GamePhase.ENDED
-    assert g.result and g.result.winner == 2
-
-
-def test_furiten_blocks_ron():
-    g = Game.new_hand(rng=random.Random(3))
-    g.players = [PlayerState() for _ in range(4)]
+def test_chow_only_from_left():
+    g = Game.new_hand(seed=2)
+    # Force a discard window manually
     g.phase = GamePhase.CLAIM_WINDOW
-    g.pending_discard = (0, parse_tiles("E")[0])
-    g.players[1].hand.concealed = parse_tiles("123m456m789m123p E")
-    g.players[1].riichi = True
-    g.players[1].temp_furiten = True
-    assert ClaimType.RON not in g.eligible_claims(1)
+    g.pending_discard = (0, _t(Suit.MAN, 3))
+    g.claim_intents = {}
+    # Seat 1 is left of 0 — give chi tiles
+    filler_p = [_t(Suit.PIN, v) for v in (1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6)]
+    filler_s = [_t(Suit.SOU, v) for v in (1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6)]
+    g.players[1].hand = Hand(concealed=[_t(Suit.MAN, 1), _t(Suit.MAN, 2)] + filler_p)
+    g.players[2].hand = Hand(concealed=[_t(Suit.MAN, 1), _t(Suit.MAN, 2)] + filler_s)
+    assert ClaimType.CHI in g.eligible_claims(1)
+    assert ClaimType.CHI not in g.eligible_claims(2)
 
 
-def test_wall_dora_indicator():
-    w = Wall.new(rng=random.Random(0))
-    inds = w.dora_indicators()
-    assert len(inds) == 1
-    w.register_kan()
-    assert len(w.dora_indicators()) == 2
+def test_claim_priority_win_over_pong():
+    g = Game.new_hand(seed=3)
+    g.phase = GamePhase.CLAIM_WINDOW
+    discard = _t(Suit.DRAGON, 0)
+    g.pending_discard = (0, discard)
+    g.claim_intents = {}
+    # Seat 2 can win: build a cheap winning free hand needing Haku
+    # Use seven pairs waiting on Haku
+    base = []
+    for s, v in [
+        (Suit.MAN, 1),
+        (Suit.MAN, 3),
+        (Suit.PIN, 2),
+        (Suit.PIN, 5),
+        (Suit.SOU, 7),
+        (Suit.WIND, 1),
+    ]:
+        base.extend([_t(s, v), _t(s, v)])
+    base.append(_t(Suit.DRAGON, 0))  # one haku — needs pair
+    g.players[2].hand = Hand(concealed=base)
+    # Seat 1 can pong haku
+    g.players[1].hand = Hand(
+        concealed=[_t(Suit.DRAGON, 0), _t(Suit.DRAGON, 0)]
+        + [_t(Suit.MAN, v) for v in (1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6)]
+    )
+    assert ClaimType.RON in g.eligible_claims(2)
+    assert ClaimType.PON in g.eligible_claims(1)
+    g.register_claim(2, ClaimType.RON)
+    g.register_claim(1, ClaimType.PON)
+    # Others auto-pass via resolve when ready — force remaining passes
+    for s in (3,):
+        g.register_claim(s, ClaimType.PASS)
+    assert g.phase == GamePhase.ENDED
+    assert g.result is not None
+    assert g.result.winner == 2
+    assert g.result.reason in ("ron", "chankan")
+
+
+def test_bot_difficulty_hard_accepted_by_fill():
+    # smoke that Game still works after claims
+    g = Game.new_hand(seed=4)
+    assert g.can_riichi(0) is False

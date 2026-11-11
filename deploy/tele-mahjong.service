@@ -1,0 +1,18 @@
+[Unit]
+Description=Singapore Mahjong Telegram bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/tele-mahjong
+Environment=PYTHONUNBUFFERED=1
+# Loads TELEGRAM_BOT_TOKEN etc from this file (KEY=value lines)
+EnvironmentFile=/home/ubuntu/tele-mahjong/.env
+ExecStart=/home/ubuntu/tele-mahjong/.venv/bin/python /home/ubuntu/tele-mahjong/main.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

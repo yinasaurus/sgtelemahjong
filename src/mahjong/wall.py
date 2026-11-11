@@ -12,7 +12,7 @@ from .tiles import Tile, tile_set_148
 class Wall:
     """
     Live wall for draws; replacements (kong / flower / animal) come from the end.
-    Game ends when fewer than END_LIVE tiles remain for normal play (SG: 15 left).
+    Exhaustive draw when remaining_live hits 0.
     """
 
     tiles: list[Tile] = field(default_factory=list)
@@ -20,7 +20,7 @@ class Wall:
     live_i: int = 0
     replace_i: int = 0  # how many taken from the end
 
-    END_LIVE = 15  # when remaining_live hits this after a draw path, game winding down
+    END_LIVE = 0  # kept for API compat; engine ends at remaining_live <= 0
 
     @classmethod
     def shuffled(cls, rng: random.Random | None = None) -> Wall:

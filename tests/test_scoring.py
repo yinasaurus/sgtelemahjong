@@ -1,69 +1,96 @@
+"""Fan / scoring tests for Singapore Mahjong."""
+
+from mahjong.fan import evaluate_fan, payout_win
 from mahjong.hand import Hand
-from mahjong.scoring import basic_points_from_han_fu, payments_for_win, score_win
-from mahjong.tiles import parse_tiles
-from mahjong.yaku import WinContext, evaluate_yaku, total_han
+from mahjong.tiles import Suit, Tile
 
 
-def test_basic_points_mangan():
-    bp, name = basic_points_from_han_fu(5, 30)
-    assert bp == 2000 and name == "mangan"
-    bp, name = basic_points_from_han_fu(4, 40)
-    assert bp == 2000 and name == "mangan"
+def _t(suit: Suit, value: int) -> Tile:
+    return Tile(suit, value)
 
 
-def test_ron_payments():
-    # 3 han 30 fu non-dealer ron: basic=30*2^5=960 → 960*4=3840 → ceil each? 
-    # payments_for_win ceils the total payment
-    pays = payments_for_win(winner=1, dealer=0, basic=960, tsumo=False, ron_from=2)
-    assert pays[2] == 3840
+def _ping_wu_hand() -> Hand:
+    h = Hand()
+    h.concealed = [
+        _t(Suit.MAN, 1),
+        _t(Suit.MAN, 2),
+        _t(Suit.MAN, 3),
+        _t(Suit.MAN, 4),
+        _t(Suit.MAN, 5),
+        _t(Suit.MAN, 6),
+        _t(Suit.MAN, 7),
+        _t(Suit.MAN, 8),
+        _t(Suit.MAN, 9),
+        _t(Suit.PIN, 1),
+        _t(Suit.PIN, 2),
+        _t(Suit.PIN, 3),
+        _t(Suit.SOU, 4),
+        _t(Suit.SOU, 4),
+    ]
+    return h
 
 
-def test_tsumo_dealer_payments():
-    # dealer tsumo 3/30 basic 960 → each pays 1920
-    pays = payments_for_win(winner=0, dealer=0, basic=960, tsumo=True, ron_from=None)
-    assert all(v == 1920 for v in pays.values())
-    assert len(pays) == 3
-
-
-def test_tanyao_riichi_score():
-    tiles = parse_tiles("234m234p345s22s 66p")  # tanyao, need 14
-    # 234m 234p 345s 22s 66p = 3+3+3+2+2=13 — fix
-    tiles = parse_tiles("234m234p345567s22s")
-    assert len(tiles) == 14
-    ctx = WinContext(
-        hand=Hand(concealed=list(tiles)),
-        winning_tile=tiles[-1],
-        from_ron=False,
-        riichi=True,
-        menzen=True,
-        tsumo=True,
-        seat_wind=1,
-        round_wind=0,
-    )
-    yaku = evaluate_yaku(ctx)
-    names = {y.name for y in yaku}
-    assert "Tanyao" in names
-    assert "Riichi" in names
-    assert "Menzen tsumo" in names
-    assert total_han(yaku) >= 3
-    result = score_win(ctx, winner=1, dealer=0)
-    assert result is not None
-    assert result.gain > 0
-
-
-def test_pinfu_detection():
-    # Closed pinfu: ryanmen wait 23p → 1p/4p
-    tiles = parse_tiles("123m456m789p23p55s 1p")
-    assert len(tiles) == 14
-    ctx = WinContext(
-        hand=Hand(concealed=list(tiles)),
-        winning_tile=parse_tiles("1p")[0],
-        from_ron=True,
-        menzen=True,
+def test_evaluate_fan_chicken_with_flower():
+    h = Hand()
+    # mixed chow + pong-ish: use ping wu base then claim only chicken path via flowers
+    h.concealed = _ping_wu_hand().concealed
+    fr = evaluate_fan(
+        h,
+        flowers=[_t(Suit.FLOWER, 0)],
+        animals=[],
         tsumo=False,
         seat_wind=1,
         round_wind=0,
+        min_fan=1,
     )
-    yaku = evaluate_yaku(ctx)
-    names = {y.name for y in yaku}
-    assert "Pinfu" in names
+    assert fr is not None
+    assert fr.total >= 1
+    names = [i.name for i in fr.items]
+    assert "All Chow" in names or "Chicken Hand" in names or "Flower 1" in names
+
+
+def test_evaluate_fan_all_chow_ping_wu_self_draw():
+    fr = evaluate_fan(
+        _ping_wu_hand(),
+        flowers=[],
+        animals=[],
+        tsumo=True,
+        seat_wind=0,
+        round_wind=0,
+        min_fan=1,
+    )
+    assert fr is not None
+    names = {i.name for i in fr.items}
+    assert "Self-draw" in names
+    assert "All Chow" in names
+    assert "Ping Wu" in names
+    assert fr.total >= 3
+
+
+def test_evaluate_fan_rejects_non_win():
+    h = Hand()
+    # 14 unrelated singles — not a win shape
+    h.concealed = [
+        _t(Suit.MAN, 1),
+        _t(Suit.MAN, 3),
+        _t(Suit.MAN, 5),
+        _t(Suit.MAN, 7),
+        _t(Suit.PIN, 2),
+        _t(Suit.PIN, 4),
+        _t(Suit.PIN, 6),
+        _t(Suit.PIN, 8),
+        _t(Suit.SOU, 1),
+        _t(Suit.SOU, 3),
+        _t(Suit.SOU, 5),
+        _t(Suit.SOU, 9),
+        _t(Suit.WIND, 0),
+        _t(Suit.DRAGON, 1),
+    ]
+    assert evaluate_fan(h, flowers=[], animals=[], tsumo=True, min_fan=1) is None
+
+
+def test_payout_win_self_draw_and_discard():
+    d = payout_win(2, tsumo=True, discarder=None, winner=0, max_fan=5)
+    assert d[0] == 6 and d[1] == -2
+    d2 = payout_win(3, tsumo=False, discarder=2, winner=1, max_fan=5)
+    assert d2[1] == 3 and d2[2] == -3

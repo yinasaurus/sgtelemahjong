@@ -33,6 +33,19 @@ def timers(context: ContextTypes.DEFAULT_TYPE) -> TimerHub:
     return context.application.bot_data["timers"]
 
 
+async def _tg_call(coro):
+    """Await a Telegram API call; honour RetryAfter once."""
+    from telegram.error import RetryAfter
+
+    try:
+        return await coro
+    except RetryAfter as e:
+        wait = float(getattr(e, "retry_after", 1)) + 0.25
+        log.warning("Telegram RetryAfter — sleeping %.1fs", wait)
+        await asyncio.sleep(wait)
+        return await coro
+
+
 async def refresh_board(
     context: ContextTypes.DEFAULT_TYPE, table: Table, *, reply_markup=None
 ) -> None:
@@ -54,8 +67,10 @@ async def refresh_board(
         text = render.lobby_text(table)
         try:
             if table.board_message_id is None:
-                msg = await context.bot.send_message(
-                    chat_id=table.chat_id, text=text, reply_markup=reply_markup
+                msg = await _tg_call(
+                    context.bot.send_message(
+                        chat_id=table.chat_id, text=text, reply_markup=reply_markup
+                    )
                 )
                 table.board_message_id = msg.message_id
                 table.board_is_photo = False  # type: ignore[attr-defined]
@@ -87,11 +102,13 @@ async def refresh_board(
     png = render_board_png(table)
     try:
         if table.board_message_id is None or not getattr(table, "board_is_photo", False):
-            msg = await context.bot.send_photo(
-                chat_id=table.chat_id,
-                photo=BytesIO(png),
-                caption=caption,
-                reply_markup=reply_markup,
+            msg = await _tg_call(
+                context.bot.send_photo(
+                    chat_id=table.chat_id,
+                    photo=BytesIO(png),
+                    caption=caption,
+                    reply_markup=reply_markup,
+                )
             )
             table.board_message_id = msg.message_id
             table.board_is_photo = True  # type: ignore[attr-defined]
@@ -554,8 +571,26 @@ async def after_game_action(
     table: Table,
     *,
     force_new_hands: bool = False,
+    already_locked: bool = False,
 ) -> None:
     """Call after any engine mutation that may change phase."""
+    if already_locked:
+        await _after_game_action_body(
+            context, table, force_new_hands=force_new_hands
+        )
+        return
+    async with mgr(context).lock_for(table.chat_id):
+        await _after_game_action_body(
+            context, table, force_new_hands=force_new_hands
+        )
+
+
+async def _after_game_action_body(
+    context: ContextTypes.DEFAULT_TYPE,
+    table: Table,
+    *,
+    force_new_hands: bool = False,
+) -> None:
     g = table.game
     if g is None:
         return

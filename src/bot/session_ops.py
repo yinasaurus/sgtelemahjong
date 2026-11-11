@@ -13,14 +13,9 @@ def deltas_from_result(table: Table) -> dict[int, int]:
     g = table.game
     assert g is not None and g.result is not None
     r = g.result
-    deltas = {i: 0 for i in range(4)}
-    if r.winner is None or r.score is None:
-        return deltas
-    winner = r.winner
-    for payer, amt in r.score.payments.items():
-        deltas[payer] -= int(amt)
-        deltas[winner] += int(amt)
-    return deltas
+    if r.deltas:
+        return {i: int(r.deltas.get(i, 0)) for i in range(4)}
+    return {i: 0 for i in range(4)}
 
 
 def record_finished_hand(db_path: str, table: Table) -> dict[int, int] | None:
@@ -34,8 +29,9 @@ def record_finished_hand(db_path: str, table: Table) -> dict[int, int] | None:
     sc = r.score
     yaku = [y.name for y in sc.yaku] if sc else []
     loser = None
-    if sc and len(sc.payments) == 1:
-        loser = next(iter(sc.payments))
+    payers = [s for s, v in deltas.items() if v < 0]
+    if len(payers) == 1:
+        loser = payers[0]
     db.record_hand(
         db_path,
         table_id=table.db_table_id,
@@ -60,10 +56,15 @@ def standings_text(db_path: str, table: Table) -> str:
     scores = db.get_scores(db_path, table.db_table_id)
     lines = [
         f"📊 Standings — hand #{table.hand_number} played",
-        f"Start {table.session_rules.start_points} · return {table.session_rules.return_points}",
-        f"Uma: {'/'.join(str(u // 1000) for u in table.session_rules.uma)}",
+        "Singapore session — running fan points (start 0)",
         "",
     ]
+    if any(table.session_rules.uma) or table.session_rules.return_points:
+        lines.insert(
+            2,
+            f"Uma {'/'.join(str(u // 1000) for u in table.session_rules.uma)} · "
+            f"return {table.session_rules.return_points}",
+        )
     order = sorted(scores.keys(), key=lambda s: (-scores[s], s))
     for rank, seat in enumerate(order, start=1):
         name = table.seats[seat].display_name
@@ -93,24 +94,25 @@ def end_session_text(db_path: str, table: Table) -> str:
         ],
     }
     db.complete_session(db_path, table.db_table_id, final_payload=payload)
-    out = [
-        "🏁 Session ended — settlement (oka + uma)",
-        f"Oka pot: {4 * (table.session_rules.return_points - table.session_rules.start_points)}",
-        "",
-    ]
+    out = ["🏁 Session ended — final fan points", ""]
+    if any(table.session_rules.uma) or table.session_rules.return_points:
+        out = [
+            "🏁 Session ended — settlement (oka + uma)",
+            f"Oka pot: {4 * (table.session_rules.return_points - table.session_rules.start_points)}",
+            "",
+        ]
     for ln in lines_s:
         name = table.seats[ln.seat_index].display_name
-        out.append(
-            f"#{ln.rank} {WIND[ln.seat_index]} {name}: "
-            f"raw {ln.raw_total} · uma {format_points(ln.uma)} · "
-            f"oka {format_points(ln.oka_share)} → {format_points(ln.final)}"
-        )
-    # who pays whom (relative finals)
-    out.append("")
-    out.append("Net vs return (final column):")
-    for ln in lines_s:
-        name = table.seats[ln.seat_index].display_name
-        out.append(f"  {name}: {format_points(ln.final)}")
+        if any(table.session_rules.uma) or table.session_rules.return_points:
+            out.append(
+                f"#{ln.rank} {WIND[ln.seat_index]} {name}: "
+                f"raw {ln.raw_total} · uma {format_points(ln.uma)} · "
+                f"oka {format_points(ln.oka_share)} → {format_points(ln.final)}"
+            )
+        else:
+            out.append(
+                f"#{ln.rank} {WIND[ln.seat_index]} {name}: {format_points(ln.raw_total)}"
+            )
     return "\n".join(out)
 
 

@@ -112,7 +112,7 @@ def upsert_table(
                 (chat_id, status, rules_json),
             )
             tid = int(cur.lastrowid)
-            start = int(rules.get("start_points", 25000))
+            start = int(rules.get("start_points", 0))
             for s in seats:
                 conn.execute(
                     """
@@ -171,7 +171,7 @@ def upsert_table(
                     (
                         tid,
                         int(s["seat_index"]),
-                        int(rules.get("start_points", 25000)),
+                        int(rules.get("start_points", 0)),
                     ),
                 )
         conn.commit()
@@ -331,3 +331,31 @@ def hand_count(path: str | Path, table_id: int) -> int:
             "SELECT COUNT(*) AS c FROM hands WHERE table_id = ?", (table_id,)
         ).fetchone()
         return int(row["c"]) if row else 0
+
+
+def abandon_all_active_tables(path: str | Path) -> int:
+    """
+    Mark every setup/active table completed as abandoned.
+    Used on bot startup — live Game state is in-memory only.
+    """
+    with closing(connect(path)) as conn:
+        rows = conn.execute(
+            "SELECT id FROM tables WHERE status IN ('setup', 'active')"
+        ).fetchall()
+        n = 0
+        for r in rows:
+            tid = int(r["id"])
+            payload = json.dumps(
+                {"abandoned": True, "reason": "bot_restart", "scores": {}}
+            )
+            conn.execute(
+                """
+                UPDATE tables
+                SET status = 'completed', ended_at = CURRENT_TIMESTAMP, final_json = ?
+                WHERE id = ?
+                """,
+                (payload, tid),
+            )
+            n += 1
+        conn.commit()
+        return n

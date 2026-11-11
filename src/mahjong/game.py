@@ -701,9 +701,6 @@ class Game:
         self.claim_intents = {}
         self.phase = GamePhase.PLAYING
         next_seat = (discarder + 1) % 4
-        if self.wall.remaining_live <= Wall.END_LIVE and self.wall.remaining_live <= 0:
-            self._exhaustive_draw()
-            return
         if self.wall.remaining_live <= 0:
             self._exhaustive_draw()
             return

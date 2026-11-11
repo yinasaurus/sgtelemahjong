@@ -59,7 +59,8 @@ HOWTO = (
     "Calls (chow/pong/kong/win): buttons appear in DM\n"
     "when you can call.\n\n"
     "Singapore style: flowers & animals, no riichi/dora.\n\n"
-    "Commands: /menu /hand /rules /howto /standings"
+    "Commands: /menu /hand /rules /howto /standings\n\n"
+    "Privacy: stores chat/user IDs, names, and scores for the table session."
 )
 
 # --- Rules book pages -------------------------------------------------------
@@ -79,7 +80,8 @@ RULES_PAGES: list[tuple[str, str]] = [
         "• Winds · Dragons\n"
         "• 8 flowers + 4 animals (expose + replace)\n\n"
         "Turns\n"
-        "Draw → (optional kong/win) → discard one tile.",
+        "Draw → (optional kong/win) → discard one tile.\n"
+        "Draw ends the hand when the live wall runs out.",
     ),
     (
         "Calls",

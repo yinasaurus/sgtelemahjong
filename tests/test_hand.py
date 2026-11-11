@@ -1,45 +1,124 @@
+"""Hand / win-shape tests for Singapore Mahjong."""
+
 from mahjong.hand import (
+    Hand,
+    Meld,
+    MeldType,
     is_chiitoitsu,
     is_kokushi,
-    is_standard_win,
+    is_tenpai,
     is_winning_hand,
+    shanten,
     winning_tile_waits,
 )
-from mahjong.tiles import Suit, Tile, parse_tiles
+from mahjong.tiles import Suit, Tile
 
 
-def test_standard_win():
-    # 123m 456m 789m 123p 44p
-    hand = parse_tiles("123m456m789m123p44p")
-    assert len(hand) == 14
-    assert is_standard_win(hand)
-    assert is_winning_hand(hand)
+def _t(suit: Suit, value: int) -> Tile:
+    return Tile(suit, value)
 
 
-def test_chiitoitsu():
-    hand = parse_tiles("1133m5588p2244s EE")
-    assert is_chiitoitsu(hand)
-    assert is_winning_hand(hand)
+def _closed_chow_hand() -> list[Tile]:
+    # 123m 456m 789m 123p 44s
+    return [
+        _t(Suit.MAN, 1),
+        _t(Suit.MAN, 2),
+        _t(Suit.MAN, 3),
+        _t(Suit.MAN, 4),
+        _t(Suit.MAN, 5),
+        _t(Suit.MAN, 6),
+        _t(Suit.MAN, 7),
+        _t(Suit.MAN, 8),
+        _t(Suit.MAN, 9),
+        _t(Suit.PIN, 1),
+        _t(Suit.PIN, 2),
+        _t(Suit.PIN, 3),
+        _t(Suit.SOU, 4),
+        _t(Suit.SOU, 4),
+    ]
 
 
-def test_kokushi():
-    hand = parse_tiles("19m19p19s E S W N Haku Hatsu Chun Chun")
-    assert len(hand) == 14
-    assert is_kokushi(hand)
-    assert is_winning_hand(hand)
+def test_standard_closed_win():
+    tiles = _closed_chow_hand()
+    assert is_winning_hand(tiles)
 
 
-def test_tenpai_waits():
-    # 123m456m789m123p E — waits E
-    hand13 = parse_tiles("123m456m789m123p E")
-    assert len(hand13) == 13
-    waits = winning_tile_waits(hand13)
-    assert any(t.suit == Suit.WIND and t.value == 0 for t in waits)
+def test_open_hand_win_after_pong():
+    # free tiles: 123m 456m 789m 44s (11 tiles) + open pong of 1p
+    free = [
+        _t(Suit.MAN, 1),
+        _t(Suit.MAN, 2),
+        _t(Suit.MAN, 3),
+        _t(Suit.MAN, 4),
+        _t(Suit.MAN, 5),
+        _t(Suit.MAN, 6),
+        _t(Suit.MAN, 7),
+        _t(Suit.MAN, 8),
+        _t(Suit.MAN, 9),
+        _t(Suit.SOU, 4),
+        _t(Suit.SOU, 4),
+    ]
+    assert is_winning_hand(free)
 
 
-def test_non_win():
-    hand = parse_tiles("112233m1199p1199s")
-    assert len(hand) == 14
-    # 112233 is two iipeikou-like; 11 99 11 99 — actually could be chiitoi? 
-    # pairs: 1m1m 2m2m 3m3m 1p1p 9p9p 1s1s 9s9s — yes chiitoi
-    assert is_chiitoitsu(hand)
+def test_seven_pairs_and_kokushi_shapes():
+    pairs = []
+    for i, (s, v) in enumerate(
+        [
+            (Suit.MAN, 1),
+            (Suit.MAN, 2),
+            (Suit.PIN, 3),
+            (Suit.PIN, 5),
+            (Suit.SOU, 7),
+            (Suit.WIND, 0),
+            (Suit.DRAGON, 1),
+        ]
+    ):
+        pairs.extend([_t(s, v), _t(s, v)])
+    assert is_chiitoitsu(pairs)
+    assert is_winning_hand(pairs)
+
+    terminals = [
+        _t(Suit.MAN, 1),
+        _t(Suit.MAN, 9),
+        _t(Suit.PIN, 1),
+        _t(Suit.PIN, 9),
+        _t(Suit.SOU, 1),
+        _t(Suit.SOU, 9),
+        _t(Suit.WIND, 0),
+        _t(Suit.WIND, 1),
+        _t(Suit.WIND, 2),
+        _t(Suit.WIND, 3),
+        _t(Suit.DRAGON, 0),
+        _t(Suit.DRAGON, 1),
+        _t(Suit.DRAGON, 2),
+        _t(Suit.DRAGON, 2),
+    ]
+    assert is_kokushi(terminals)
+    assert is_winning_hand(terminals)
+
+
+def test_tenpai_and_shanten_closed():
+    tiles13 = _closed_chow_hand()[:-1]  # drop one 4s
+    assert len(tiles13) == 13
+    assert is_tenpai(tiles13)
+    waits = winning_tile_waits(tiles13)
+    assert any(w.suit == Suit.SOU and w.value == 4 for w in waits)
+    assert shanten(tiles13) == 0
+
+
+def test_shanten_open_meld_count():
+    # 10 free tiles after one open meld, roughly closer than closed junk
+    free = [
+        _t(Suit.MAN, 1),
+        _t(Suit.MAN, 2),
+        _t(Suit.MAN, 3),
+        _t(Suit.MAN, 4),
+        _t(Suit.MAN, 5),
+        _t(Suit.MAN, 6),
+        _t(Suit.PIN, 2),
+        _t(Suit.PIN, 3),
+        _t(Suit.SOU, 4),
+        _t(Suit.SOU, 4),
+    ]
+    assert shanten(free, open_meld_count=1) <= shanten(free, open_meld_count=0)

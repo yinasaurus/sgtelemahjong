@@ -26,28 +26,43 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await q.answer("Bad request.", show_alert=True)
         return
     kind = parts[0]
+    # Serialize mutations per chat when callback embeds chat_id
+    chat_lock = None
+    if len(parts) >= 2 and parts[1].lstrip("-").isdigit():
+        chat_lock = flow.mgr(context).lock_for(int(parts[1]))
     try:
-        if kind == "m":
-            await _menu_cb(q, context, parts)
-        elif kind == "t":
-            await _table_cb(q, context, parts)
-        elif kind == "d":
-            await _discard_cb(q, context, parts)
-        elif kind == "c":
-            await _claim_cb(q, context, parts)
-        elif kind == "chi":
-            await _chi_cb(q, context, parts)
-        elif kind == "a":
-            await _action_cb(q, context, parts)
-        elif kind == "r":
-            await _riichi_discard_cb(q, context, parts)
-        elif kind == "k":
-            await _kan_cb(q, context, parts)
+        if chat_lock is not None:
+            async with chat_lock:
+                await _dispatch_callback(q, context, parts, kind)
         else:
-            await q.answer("Unknown action.", show_alert=True)
+            await _dispatch_callback(q, context, parts, kind)
     except Exception:
         log.exception("callback failed data=%s", data)
-        await q.answer("Error â€” try /table or /hand.", show_alert=True)
+        try:
+            await q.answer("Error — try /table or /hand.", show_alert=True)
+        except Exception:
+            pass
+
+
+async def _dispatch_callback(q, context, parts: list[str], kind: str) -> None:
+    if kind == "m":
+        await _menu_cb(q, context, parts)
+    elif kind == "t":
+        await _table_cb(q, context, parts)
+    elif kind == "d":
+        await _discard_cb(q, context, parts)
+    elif kind == "c":
+        await _claim_cb(q, context, parts)
+    elif kind == "chi":
+        await _chi_cb(q, context, parts)
+    elif kind == "a":
+        await _action_cb(q, context, parts)
+    elif kind == "r":
+        await _riichi_discard_cb(q, context, parts)
+    elif kind == "k":
+        await _kan_cb(q, context, parts)
+    else:
+        await q.answer("Unknown action.", show_alert=True)
 
 
 def _table(context, chat_id: int):
@@ -81,7 +96,7 @@ async def _menu_cb(q, context, parts: list[str]) -> None:
         if (
             q.message
             and q.message.text
-            and q.message.text.startswith("ðŸ“– Rules")
+            and q.message.text.startswith("?? Rules")
             and len(parts) >= 4
         ):
             try:
@@ -261,7 +276,7 @@ async def _table_cb(q, context, parts: list[str]) -> None:
         if table.game.phase != GamePhase.ENDED:
             await q.answer("Hand still in progress.", show_alert=True)
             return
-        await q.answer("Dealingâ€¦")
+        await q.answer("Dealing…")
         old = table.game
         dealer = old.dealer
         round_wind = old.round_wind
@@ -296,12 +311,15 @@ async def _table_cb(q, context, parts: list[str]) -> None:
         if hasattr(table, "_dm_warn_users"):
             table._dm_warn_users.clear()  # type: ignore[attr-defined]
         flow.mgr(context).persist(table)
-        # Single board refresh â€” no extra "Dealingâ€¦" spam
-        await flow.after_game_action(context, table, force_new_hands=True)
+        # Single board refresh — no extra "Dealing…" spam
+        await flow.after_game_action(context, table, force_new_hands=True, already_locked=True)
         return
     if action == "end":
         if table is None:
             await q.answer("No table.", show_alert=True)
+            return
+        if table.seat_of_user(uid) is None and uid != table.host_user_id:
+            await q.answer("Only seated players / host can end.", show_alert=True)
             return
         await q.answer("Ended.")
         flow.timers(context).cancel(chat_id)
@@ -317,7 +335,7 @@ async def _table_cb(q, context, parts: list[str]) -> None:
             return
         from bot import session_ops
 
-        await q.answer("Settlingâ€¦")
+        await q.answer("Settling…")
         flow.timers(context).cancel(chat_id)
         text = session_ops.end_session_text(flow.mgr(context).db_path, table)
         flow.mgr(context).tables.pop(chat_id, None)
@@ -354,10 +372,10 @@ async def _discard_cb(q, context, parts: list[str]) -> None:
     g = table.game
     if g.phase != GamePhase.PLAYING or g.turn_seat != seat or not g.has_drawn:
         await q.answer(
-            "Not your turn (or old buttons). Opening a fresh handâ€¦",
+            "Not your turn (or old buttons). Opening a fresh hand…",
             show_alert=True,
         )
-        # Stale DM keyboard from an earlier message â€” refresh
+        # Stale DM keyboard from an earlier message — refresh
         await flow.send_hand_dm(context, table, seat, force_new=True)
         return
     tile = (
@@ -370,11 +388,11 @@ async def _discard_cb(q, context, parts: list[str]) -> None:
         await flow.send_hand_dm(context, table, seat, force_new=True)
         return
     if tile is not None:
-        await q.answer(f"Threw {tile.unicode()} {tile.label()} âœ“")
+        await q.answer(f"Threw {tile.unicode()} {tile.label()} ?")
         await flow.announce_discard(context, table, seat, tile, with_photo=True)
     else:
-        await q.answer("Threw âœ“")
-    await flow.after_game_action(context, table)
+        await q.answer("Threw ?")
+    await flow.after_game_action(context, table, already_locked=True)
 
 
 async def _claim_cb(q, context, parts: list[str]) -> None:
@@ -407,7 +425,7 @@ async def _claim_cb(q, context, parts: list[str]) -> None:
         await q.answer(g.last_error or "Cannot claim.", show_alert=True)
         return
     await q.answer(f"{kind.value} registered.")
-    await flow.after_game_action(context, table, force_new_hands=True)
+    await flow.after_game_action(context, table, force_new_hands=True, already_locked=True)
 
 
 async def _chi_cb(q, context, parts: list[str]) -> None:
@@ -431,7 +449,7 @@ async def _chi_cb(q, context, parts: list[str]) -> None:
         await q.answer(g.last_error or "Cannot chi.", show_alert=True)
         return
     await q.answer("Chi registered.")
-    await flow.after_game_action(context, table, force_new_hands=True)
+    await flow.after_game_action(context, table, force_new_hands=True, already_locked=True)
 
 
 async def _action_cb(q, context, parts: list[str]) -> None:
@@ -455,7 +473,7 @@ async def _action_cb(q, context, parts: list[str]) -> None:
             await q.answer(g.last_error or "Cannot win.", show_alert=True)
             return
         await q.answer("Self-draw!")
-        await flow.after_game_action(context, table)
+        await flow.after_game_action(context, table, already_locked=True)
         return
     if action == "riichi_mode":
         await q.answer("No riichi in Singapore Mahjong.", show_alert=True)
@@ -501,7 +519,7 @@ async def _kan_cb(q, context, parts: list[str]) -> None:
     await context.bot.send_message(
         chat_id=chat_id, text=f"{table.name_for_seat(seat)} declared kan."
     )
-    await flow.after_game_action(context, table)
+    await flow.after_game_action(context, table, already_locked=True)
 
 
 def _auth_seat(table, user_id: int, seat: int) -> bool:

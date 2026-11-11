@@ -1,22 +1,32 @@
-from mahjong.tiles import Suit, Tile, parse_tile, parse_tiles, tile_set_136
+"""Unit tests for Singapore Mahjong tiles."""
+
+from mahjong.tiles import Suit, Tile, tile_set_148, tile_set_136
 
 
-def test_tile_set_136_with_aka():
-    tiles = tile_set_136(use_aka=True)
-    assert len(tiles) == 136
-    aka = [t for t in tiles if t.aka]
-    assert len(aka) == 3
-    assert {t.suit for t in aka} == {Suit.MAN, Suit.PIN, Suit.SOU}
+def test_tile_set_148_counts():
+    tiles = tile_set_148()
+    assert len(tiles) == 148
+    flowers = [t for t in tiles if t.suit == Suit.FLOWER]
+    animals = [t for t in tiles if t.suit == Suit.ANIMAL]
+    assert len(flowers) == 8
+    assert len(animals) == 4
+    for suit in (Suit.MAN, Suit.PIN, Suit.SOU):
+        for v in range(1, 10):
+            assert sum(1 for t in tiles if t.suit == suit and t.value == v) == 4
+    for w in range(4):
+        assert sum(1 for t in tiles if t.suit == Suit.WIND and t.value == w) == 4
+    for d in range(3):
+        assert sum(1 for t in tiles if t.suit == Suit.DRAGON and t.value == d) == 4
 
 
-def test_dora_next_wraps():
-    assert Tile(Suit.MAN, 9).dora_next() == Tile(Suit.MAN, 1)
-    assert Tile(Suit.WIND, 3).dora_next() == Tile(Suit.WIND, 0)  # N → E
-    assert Tile(Suit.DRAGON, 2).dora_next() == Tile(Suit.DRAGON, 0)  # Chun → Haku
+def test_tile_set_136_alias_is_148():
+    assert len(tile_set_136()) == 148
 
 
-def test_parse_tiles():
-    tiles = parse_tiles("123m45p EE Haku r5s")
-    assert len(tiles) == 3 + 2 + 2 + 1 + 1
-    assert tiles[-1].aka and tiles[-1].suit == Suit.SOU
-    assert parse_tile("5m").value == 5
+def test_bonus_helpers():
+    f = Tile(Suit.FLOWER, 0)
+    a = Tile(Suit.ANIMAL, 2)
+    assert f.is_bonus and f.is_flower and f.flower_wind == 0
+    assert a.is_bonus and a.is_animal
+    assert f.label().startswith("Sea")
+    assert a.unicode()

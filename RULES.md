@@ -16,7 +16,7 @@ Source of truth for what `src/mahjong/` implements. Club-friendly Singapore styl
 ## Wall
 
 - Live draws from the front; flower/animal/kong **replacements from the wall end**.
-- Hand winds down when live tiles are exhausted (~15 reserved conceptually).
+- Hand ends in a draw when the **live wall is empty** (no remaining live tiles).
 
 ---
 

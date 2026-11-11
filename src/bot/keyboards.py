@@ -82,8 +82,14 @@ def group_menu_keyboard(chat_id: int, *, has_table: bool) -> InlineKeyboardMarku
             ],
             [
                 InlineKeyboardButton(
+                    "▶️ Play solo (3 hard bots)",
+                    callback_data=f"m:{chat_id}:new:3:hard",
+                )
+            ],
+            [
+                InlineKeyboardButton(
                     "👥 3 people + 1 bot",
-                    callback_data=f"m:{chat_id}:new:1:easy",
+                    callback_data=f"m:{chat_id}:new:1:normal",
                 )
             ],
             [

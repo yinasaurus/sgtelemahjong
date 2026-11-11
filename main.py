@@ -18,8 +18,9 @@ from telegram import (
     BotCommandScopeAllGroupChats,
     BotCommandScopeAllPrivateChats,
     BotCommandScopeDefault,
+    Update,
 )
-from telegram.ext import Application
+from telegram.ext import Application, ContextTypes
 
 from bot.config import load_settings
 from bot.handlers import register_handlers
@@ -40,20 +41,39 @@ _COMMANDS = [
     BotCommand("rules", "Singapore Mahjong rules book"),
     BotCommand("hand", "Resend your private hand"),
     BotCommand("standings", "Session scores"),
-    BotCommand("endsession", "End table + uma/oka"),
+    BotCommand("endsession", "End table + settle scores"),
 ]
 
 
 async def _post_init(app: Application) -> None:
-    # Default alone often only shows in private — set group scope too
     await app.bot.set_my_commands(_COMMANDS, scope=BotCommandScopeDefault())
     await app.bot.set_my_commands(_COMMANDS, scope=BotCommandScopeAllPrivateChats())
     await app.bot.set_my_commands(_COMMANDS, scope=BotCommandScopeAllGroupChats())
     log.info("Bot commands registered (private + groups)")
+    tables: TableManager = app.bot_data["tables"]
+    if getattr(tables, "startup_abandoned", 0):
+        log.warning(
+            "Abandoned %s active/setup DB table(s) from a previous process "
+            "(live hands are memory-only — start a new table in Telegram)",
+            tables.startup_abandoned,
+        )
+
+
+async def _on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    log.exception("Unhandled error update=%s", update)
+    if isinstance(update, Update) and update.effective_chat:
+        try:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Something went wrong — try /menu or /hand.",
+            )
+        except Exception:
+            pass
 
 
 def main() -> None:
     settings = load_settings()
+    tables = TableManager(settings.database_path)
     app = (
         Application.builder()
         .token(settings.bot_token)
@@ -62,14 +82,16 @@ def main() -> None:
         .build()
     )
     app.bot_data["settings"] = settings
-    app.bot_data["tables"] = TableManager(settings.database_path)
+    app.bot_data["tables"] = tables
     app.bot_data["timers"] = TimerHub()
     register_handlers(app)
+    app.add_error_handler(_on_error)
     log.info(
         "Starting Singapore Mahjong bot (turn=%ss claim=%ss)",
         settings.turn_timeout_s,
         settings.claim_timeout_s,
     )
+    # Only one process may poll — stop local copies before deploying
     app.run_polling(allowed_updates=["message", "callback_query"])
 
 

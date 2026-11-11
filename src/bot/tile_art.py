@@ -36,25 +36,45 @@ def _tile_filename(tile: Tile) -> str | None:
     return None
 
 
+def _truetype(size: int, *, bold: bool = False) -> ImageFont.ImageFont:
+    """Cross-platform font lookup (Windows + common Linux paths)."""
+    candidates = [
+        r"C:\Windows\Fonts\seguiemj.ttf",
+        r"C:\Windows\Fonts\segoeui.ttf",
+        r"C:\Windows\Fonts\arialbd.ttf" if bold else r"C:\Windows\Fonts\arial.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/TTF/DejaVuSans.ttf",
+    ]
+    for path in candidates:
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
 def _draw_bonus_face(tile: Tile) -> Image.Image:
     """Simple face for flowers / animals (no FluffyStuff art)."""
     front = _load_front().copy().resize((TW, TH), Image.Resampling.LANCZOS)
     d = ImageDraw.Draw(front)
-    label = tile.unicode()
-    short = tile.label()[:4]
-    # big emoji-ish / unicode centre
-    try:
-        big = ImageFont.truetype(r"C:\Windows\Fonts\seguiemj.ttf", 42)
-        small = ImageFont.truetype(r"C:\Windows\Fonts\arialbd.ttf", 14)
-    except OSError:
-        big = ImageFont.load_default()
-        small = big
-    bbox = d.textbbox((0, 0), label, font=big)
+    # Prefer short ASCII label on Linux (emoji fonts often missing)
+    short = tile.label()[:5]
+    big = _truetype(28, bold=True)
+    small = _truetype(13, bold=True)
+    bbox = d.textbbox((0, 0), short, font=big)
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    d.text(((TW - tw) // 2 - bbox[0], (TH - th) // 2 - bbox[1] - 8), label, font=big, fill=(40, 40, 40, 255))
-    sb = d.textbbox((0, 0), short, font=small)
+    d.text(
+        ((TW - tw) // 2 - bbox[0], (TH - th) // 2 - bbox[1] - 6),
+        short,
+        font=big,
+        fill=(40, 40, 40, 255),
+    )
+    kind = "FLW" if tile.is_flower else "ANI"
+    sb = d.textbbox((0, 0), kind, font=small)
     stw = sb[2] - sb[0]
-    d.text(((TW - stw) // 2 - sb[0], TH - 28), short, font=small, fill=(90, 40, 40, 255))
+    d.text(((TW - stw) // 2 - sb[0], TH - 28), kind, font=small, fill=(90, 40, 40, 255))
     return front
 
 
@@ -80,16 +100,7 @@ def _load_face(filename: str) -> Image.Image:
 
 
 def _index_font() -> ImageFont.ImageFont:
-    for path in (
-        r"C:\Windows\Fonts\arialbd.ttf",
-        r"C:\Windows\Fonts\arial.ttf",
-        r"C:\Windows\Fonts\segoeui.ttf",
-    ):
-        try:
-            return ImageFont.truetype(path, 15)
-        except OSError:
-            continue
-    return ImageFont.load_default()
+    return _truetype(15, bold=True)
 
 
 def draw_tile(tile: Tile, *, index: int | None = None) -> Image.Image:

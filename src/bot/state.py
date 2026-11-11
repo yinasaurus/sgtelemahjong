@@ -96,7 +96,7 @@ class Table:
         try:
             BotDifficulty(diff)
         except ValueError:
-            return "difficulty must be easy or normal."
+            return "difficulty must be easy, normal, or hard."
         self.bot_difficulty = diff
         # Clear existing bots first
         for s in self.seats:
@@ -201,7 +201,21 @@ class TableManager:
     def __init__(self, db_path: str) -> None:
         self.db_path = db_path
         self.tables: dict[int, Table] = {}
+        self._locks: dict[int, object] = {}
         db.init_db(db_path)
+        # Live hands live only in memory — orphan DB rows from a previous process
+        abandoned = db.abandon_all_active_tables(db_path)
+        self.startup_abandoned = abandoned
+
+    def lock_for(self, chat_id: int):
+        """Per-table asyncio.Lock (lazy)."""
+        import asyncio
+
+        lock = self._locks.get(chat_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._locks[chat_id] = lock
+        return lock
 
     def get(self, chat_id: int) -> Table | None:
         return self.tables.get(chat_id)

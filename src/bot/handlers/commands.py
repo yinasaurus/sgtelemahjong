@@ -103,8 +103,8 @@ def _parse_newtable_args(args: list[str]):
                 return "Invalid bots= value (use 0–3)."
         elif al.startswith("diff="):
             diff = al.split("=", 1)[1]
-            if diff not in ("easy", "normal"):
-                return "diff must be easy or normal."
+            if diff not in ("easy", "normal", "hard"):
+                return "diff must be easy, normal, or hard."
         elif al.startswith("uma="):
             parts = al.split("=", 1)[1].split("/")
             if len(parts) != 4:
